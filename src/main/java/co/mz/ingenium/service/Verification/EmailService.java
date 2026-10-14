@@ -26,9 +26,9 @@ import org.springframework.web.client.RestClientException;
  * Envio dos códigos de verificação.
  *
  * Ordem de preferência:
- *  1. API HTTP do Resend (porta 443) quando app.mail.resend.api-key está definida.
- *     Funciona no Render grátis, que bloqueia SMTP.
- *  2. SMTP (JavaMailSender) quando não há chave do Resend.
+ *  1. API HTTP do Brevo (porta 443) quando app.mail.brevo.api-key está definida.
+ *     É a opção que funciona no Render grátis, que bloqueia SMTP.
+ *  2. SMTP (JavaMailSender) quando não há chave do Brevo.
  *  3. Apenas log, se app.mail.log-codes=true (só em desenvolvimento).
  */
 @Service
@@ -37,58 +37,59 @@ public class EmailService {
     private static final Logger log =
             LoggerFactory.getLogger(EmailService.class);
 
-    private static final String RESEND_URL = "https://api.resend.com/emails";
+    private static final String BREVO_URL =
+            "https://api.brevo.com/v3/smtp/email";
 
     private final ApplicationEventPublisher events;
     private final JavaMailSender mailSender;
     private final String from;
     private final String fromName;
-    private final String resendApiKey;
+    private final String brevoApiKey;
     private final boolean logCodes;
-    private final RestClient resendClient;
+    private final RestClient brevoClient;
 
     public EmailService(
             ApplicationEventPublisher events,
             ObjectProvider<JavaMailSender> senders,
             @Value("${app.mail.from:${spring.mail.username:}}") String from,
             @Value("${app.mail.from-name:Ingenium}") String fromName,
-            @Value("${app.mail.resend.api-key:}") String resendApiKey,
+            @Value("${app.mail.brevo.api-key:}") String brevoApiKey,
             @Value("${app.mail.log-codes:false}") boolean logCodes) {
 
         this.events = events;
         this.mailSender = senders.getIfAvailable();
         this.from = from;
         this.fromName = fromName;
-        this.resendApiKey = resendApiKey == null ? "" : resendApiKey.trim();
+        this.brevoApiKey = brevoApiKey == null ? "" : brevoApiKey.trim();
         this.logCodes = logCodes;
 
-        boolean usaResend = !this.resendApiKey.isBlank();
+        boolean usaBrevo = !this.brevoApiKey.isBlank();
 
-        if (!logCodes && !usaResend && (mailSender == null || from.isBlank())) {
+        if (!logCodes && !usaBrevo && (mailSender == null || from.isBlank())) {
             throw new IllegalStateException(
-                    "Configure app.mail.resend.api-key (recomendado) ou "
+                    "Configure app.mail.brevo.api-key (recomendado) ou "
                             + "spring.mail.host e app.mail.from para enviar os códigos. "
                             + "Apenas em desenvolvimento, pode usar app.mail.log-codes=true.");
         }
 
-        if (usaResend && from.isBlank()) {
+        if (usaBrevo && from.isBlank()) {
             throw new IllegalStateException(
-                    "Defina app.mail.from com um remetente do seu domínio verificado no Resend.");
+                    "Defina app.mail.from com o remetente validado no Brevo.");
         }
 
-        if (usaResend) {
+        if (usaBrevo) {
             HttpClient httpClient = HttpClient.newBuilder()
                     .connectTimeout(Duration.ofSeconds(10))
                     .build();
             JdkClientHttpRequestFactory factory =
                     new JdkClientHttpRequestFactory(httpClient);
             factory.setReadTimeout(Duration.ofSeconds(15));
-            this.resendClient = RestClient.builder()
+            this.brevoClient = RestClient.builder()
                     .requestFactory(factory)
                     .build();
-            log.info("Envio de email: API do Resend (HTTPS).");
+            log.info("Envio de email: API do Brevo (HTTPS).");
         } else {
-            this.resendClient = null;
+            this.brevoClient = null;
             log.info("Envio de email: {}",
                     logCodes ? "apenas log (desenvolvimento)" : "SMTP");
         }
@@ -137,33 +138,33 @@ public class EmailService {
             return;
         }
 
-        if (resendClient != null) {
-            enviarPorResend(event.to(), subject, text);
+        if (brevoClient != null) {
+            enviarPorBrevo(event.to(), subject, text);
         } else {
             enviarPorSmtp(event.to(), subject, text);
         }
     }
 
-    private void enviarPorResend(String to, String subject, String text) {
+    private void enviarPorBrevo(String to, String subject, String text) {
         try {
             Map<String, Object> body = Map.of(
-                    "from", fromName + " <" + from + ">",
-                    "to", List.of(to),
+                    "sender", Map.of("name", fromName, "email", from),
+                    "to", List.of(Map.of("email", to)),
                     "subject", subject,
-                    "text", text);
+                    "textContent", text);
 
-            resendClient.post()
-                    .uri(RESEND_URL)
+            brevoClient.post()
+                    .uri(BREVO_URL)
                     .contentType(MediaType.APPLICATION_JSON)
                     .accept(MediaType.APPLICATION_JSON)
-                    .header("Authorization", "Bearer " + resendApiKey)
+                    .header("api-key", brevoApiKey)
                     .body(body)
                     .retrieve()
                     .toBodilessEntity();
 
-            log.info("Email enviado para {} (Resend).", to);
+            log.info("Email enviado para {} (Brevo).", to);
         } catch (RestClientException e) {
-            log.error("Não foi possível enviar o email para {} (Resend)", to, e);
+            log.error("Não foi possível enviar o email para {} (Brevo)", to, e);
         }
     }
 
