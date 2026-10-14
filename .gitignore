@@ -35,3 +35,8 @@ build/
 src/main/resources/application-local.properties
 .env
 *.env
+
+target/
+.idea/
+hs_err_pid*.log
+login.json
