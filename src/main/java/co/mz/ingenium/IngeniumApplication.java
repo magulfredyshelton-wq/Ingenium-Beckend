@@ -1,0 +1,15 @@
+package co.mz.ingenium;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+@ConfigurationPropertiesScan
+public class IngeniumApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(IngeniumApplication.class, args);
+	}
+
+}
